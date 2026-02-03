@@ -1,101 +1,150 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Patient Map</title>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Leaflet CSS & JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- CSV Parser -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-
-  <style>
-    body { margin: 0; }
-    #map { height: 100vh; width: 100vw; }
-  </style>
-</head>
-<body>
-
-<div id="map"></div>
-
 <script>
-  // 🔁 REPLACE THIS WITH YOUR GOOGLE SHEET CSV LINK
-  const sheetURL = "https://api.allorigins.win/raw?url=https://docs.google.com/spreadsheets/d/1iXBO5Lzd0ymejFICOTbRoSgcldrfcVUAwMhBGJ2KGWA/export?format=csv";
+var map = L.map('map').setView([-2.9, 104.7], 11);
 
-  // 🌍 Create Map
-  var map = L.map('map').setView([-2.99, 104.75], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+}).addTo(map);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+function getColor(diagnosis) {
+    return {
+        "KONDISI LAIN": "green",
+        "DM & HT": "blue",
+        "HT": "brown",
+        "DM": "violet",
+        "TB": "grey"
+    }[diagnosis] || "red";
+}
 
-  // 🎨 Color Rules Based on Diagnosis
-  function getPinColor(diagnosis) {
-    if (diagnosis === "KONDISI LAIN") return "green";
-    if (diagnosis === "DM & HT") return "blue";
-    if (diagnosis === "HT") return "orange";
-    if (diagnosis === "DM") return "violet";
-    if (diagnosis === "TB") return "grey";
-    return "red";
-  }
-
-  // 📍 Create Colored Marker Icon
-  function createPin(color) {
+function createIcon(color) {
     return new L.Icon({
-      iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${color}.png`,
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-      popupAnchor: [1, -34],
-      shadowSize: [41, 41]
+        iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${color}.png`,
+        shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+        iconSize: [25,41],
+        iconAnchor: [12,41],
+        popupAnchor: [1,-34],
+        shadowSize: [41,41]
     });
-  }
+}
 
-  // 📥 Load Data from Google Sheet
-  Papa.parse(sheetURL, {
-    download: true,
-    header: true,
-    complete: function(results) {
+// 🔥 FETCH FROM GOOGLE SHEETS
+fetch(https://docs.google.com/spreadsheets/d/1iXBO5Lzd0ymejFICOTbRoSgcldrfcVUAwMhBGJ2KGWA/export?format=csv)
+.then(response => response.text())
+.then(csv => {
+    var rows = csv.split('\n').slice(1);
+    var markers = [];
 
-      let bounds = [];
+    var stats = {
+        total: 0,
+        "DM": 0,
+        "HT": 0,
+        "DM & HT": 0,
+        "TB": 0,
+        "KONDISI LAIN": 0
+    };
 
-      results.data.forEach(row => {
-        if(row.latitude && row.longitude){
+    rows.forEach(row => {
+        var cols = row.split(',');
+        if (cols.length < 6) return;
 
-          const lat = parseFloat(row.latitude);
-          const lng = parseFloat(row.longitude);
-          const pinColor = getPinColor(row.diagnosis);
+        var nama = cols[0].trim();
+        var lat = parseFloat(cols[1]);
+        var lng = parseFloat(cols[2]);
+        var nik = cols[3].trim();
+        var tgl = cols[4].trim();
+        var diagnosis = cols[5].trim();
 
-          const marker = L.marker([lat, lng], {
-            icon: createPin(pinColor)
-          }).addTo(map);
+        if (isNaN(lat) || isNaN(lng)) return;
 
-          marker.bindPopup(`
-            <b>Nama:</b> ${row.nama}<br>
-            <b>NIK:</b> ${row.NIK}<br>
-            <b>Tanggal Lahir:</b> ${row["tanggal lahir"]}<br>
-            <b>Diagnosis:</b> ${row.diagnosis}
-          `);
+        stats.total++;
+        if (stats[diagnosis] !== undefined) stats[diagnosis]++;
 
-          bounds.push([lat, lng]);
-        }
-      });
+        var marker = L.marker([lat, lng], { icon: createIcon(getColor(diagnosis)) });
 
-      // 🔎 Auto zoom to show all markers
-      if(bounds.length > 0){
-        map.fitBounds(bounds);
-      }
-    }
-  });
+        marker.bindPopup(
+            "<b>Nama:</b> " + nama +
+            "<br><b>NIK:</b> " + nik +
+            "<br><b>Tgl Lahir:</b> " + tgl +
+            "<br><b>Diagnosis:</b> " + diagnosis
+        );
+
+        marker.diagnosis = diagnosis;
+        marker.nama = nama.toLowerCase();
+        marker.nik = nik;
+
+        marker.addTo(map);
+        markers.push(marker);
+    });
+
+    createFilterControl(markers);
+    createSearchControl(markers);
+    createDashboard(stats);
+});
+
+// FILTER
+function createFilterControl(markers) {
+    var control = L.control({position: 'topright'});
+    control.onAdd = function () {
+        var div = L.DomUtil.create('div', 'control-box');
+        div.innerHTML = `
+            <b>Filter Diagnosis</b><br>
+            <label><input type="checkbox" value="DM" checked> DM</label><br>
+            <label><input type="checkbox" value="HT" checked> HT</label><br>
+            <label><input type="checkbox" value="DM & HT" checked> DM & HT</label><br>
+            <label><input type="checkbox" value="TB" checked> TB</label><br>
+            <label><input type="checkbox" value="KONDISI LAIN" checked> Kondisi Lain</label>
+        `;
+        div.querySelectorAll('input').forEach(cb => {
+            cb.onchange = function () {
+                var active = Array.from(div.querySelectorAll('input:checked')).map(i => i.value);
+                markers.forEach(m => {
+                    if (active.includes(m.diagnosis)) m.addTo(map);
+                    else map.removeLayer(m);
+                });
+            };
+        });
+        return div;
+    };
+    control.addTo(map);
+}
+
+// SEARCH
+function createSearchControl(markers) {
+    var control = L.control({position: 'topleft'});
+    control.onAdd = function () {
+        var div = L.DomUtil.create('div', 'control-box search-box');
+        div.innerHTML = `<b>Cari Pasien</b><br>
+            <input type="text" id="searchInput" placeholder="Nama / NIK">`;
+
+        div.querySelector('#searchInput').addEventListener('keyup', function(e) {
+            var text = e.target.value.toLowerCase();
+            markers.forEach(m => {
+                if (m.nama.includes(text) || m.nik.includes(text)) {
+                    map.setView(m.getLatLng(), 15);
+                    m.openPopup();
+                }
+            });
+        });
+        return div;
+    };
+    control.addTo(map);
+}
+
+// DASHBOARD
+function createDashboard(stats) {
+    var control = L.control({position: 'bottomleft'});
+    control.onAdd = function () {
+        var div = L.DomUtil.create('div', 'control-box');
+        div.innerHTML = `
+            <b>Statistik Pasien</b><br>
+            Total: ${stats.total}<br>
+            DM: ${stats["DM"]}<br>
+            HT: ${stats["HT"]}<br>
+            DM & HT: ${stats["DM & HT"]}<br>
+            TB: ${stats["TB"]}<br>
+            Kondisi Lain: ${stats["KONDISI LAIN"]}
+        `;
+        return div;
+    };
+    control.addTo(map);
+}
 </script>
-
-</body>
-</html>
-
-</script>
-
-</body>
-</html>
