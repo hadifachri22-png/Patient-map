@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Patient Map</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <style>
+    #map { height: 100vh; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script>
+  const sheetURL = "https://docs.google.com/spreadsheets/d/1iXBO5Lzd0ymejFICOTbRoSgcldrfcVUAwMhBGJ2KGWA/export?format=csv";
+
+  var map = L.map('map').setView([-2.99, 104.75], 12);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  function getColor(status) {
+    if (status === "Active") return "green";
+    if (status === "Follow-up") return "orange";
+    if (status === "New") return "blue";
+    return "red";
+  }
+
+  Papa.parse(sheetURL, {
+    download: true,
+    header: true,
+    complete: function(results) {
+      results.data.forEach(row => {
+        if(row.latitude && row.longitude){
+          const marker = L.circleMarker([row.latitude, row.longitude], {
+            radius: 8,
+            color: getColor(row.status),
+            fillOpacity: 0.8
+          }).addTo(map);
+
+          marker.bindPopup(`
+            <b>${row.patient_name}</b><br>
+            Status: ${row.status}<br>
+            Note: ${row.note}<br>
+            <a href="${row.notion_url}" target="_blank">Open Patient Page</a>
+          `);
+        }
+      });
+    }
+  });
+</script>
+
+</body>
+</html>
